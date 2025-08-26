@@ -1,0 +1,46 @@
+# 1. IDE 相关文件（你的 .idea 文件夹必须过滤）
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*.swo
+
+# 2. Go 编译产物（避免上传二进制文件）
+# 编译生成的可执行文件（如 main、gin 等）
+main
+gin
+# Go 模块缓存
+go.sum
+# 编译临时文件
+__debug_bin
+*.exe
+*.dll
+*.so
+*.a
+# 测试相关文件
+coverage.out
+test-report/
+
+# 3. Docker 相关冗余文件
+# Docker 构建缓存（若本地有）
+.dockerignore
+# 镜像导出文件
+*.tar
+*.tar.gz
+# Docker Compose 临时文件（若后续用）
+docker-compose.override.yml
+.env
+.env.local
+
+# 4. 日志和临时文件
+logs/
+tmp/
+*.log
+*.tmp
+*.bak
+
+# 5. 操作系统临时文件
+.DS_Store       # Mac
+Thumbs.db       # Windows
