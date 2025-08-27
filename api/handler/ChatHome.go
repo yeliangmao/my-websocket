@@ -236,6 +236,7 @@ func CharRead(node request.Node, Name string, ID int) {
 				}
 				data, _ := json.Marshal(res)
 				node.Conn.WriteMessage(websocket.TextMessage, data)
+				continue
 			}
 			// 检查目标节点的RabbitMQ连接是否存在，不存在则重新同步连接
 			// Check if RabbitMQ connection for target node exists; resync if not
