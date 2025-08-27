@@ -105,65 +105,58 @@ func ChatHome(context *gin.Context) {
 	// 8. 使用WaitGroup等待读写协程完成，确保连接关闭前读写操作正常收尾
 	// 8. Use WaitGroup to wait for read/write goroutines to complete, ensuring proper cleanup of read/write operations before connection closes
 	var WG sync.WaitGroup
-	WG.Add(2) // 注册2个待等待的协程（读协程+写协程） / Register 2 goroutines to wait for (read goroutine + write goroutine)
+	WG.Add(1) // 注册2个待等待的协程（读协程+写协程） / Register 2 goroutines to wait for (read goroutine + write goroutine)
 	// 启动消息写入协程（向客户端推送消息）
 	// Start message write goroutine (pushes messages to client)
 	go ChatWrite(&WG, Node, context.Request.Header.Get("X-Forwarded-For"))
 	// 启动消息读取协程（接收客户端发送的消息）
 	// Start message read goroutine (receives messages from client)
 	go CharRead(&WG, Node, context.Request.Header.Get("X-Forwarded-For"), ID)
+	go CharExit(&WG, Node)
 	WG.Wait() // 阻塞等待读写协程结束 / Block and wait for read/write goroutines to end
+	return
+}
+
+func CharExit(s *sync.WaitGroup, node request.Node) {
+	for {
+		ok := <-node.Exit
+		if ok {
+			s.Done()
+			return
+		}
+	}
 }
 
 // ChatWrite 消息读取协程：从客户端接收消息并推送到数据通道
 // ChatWrite message read goroutine: Receives messages from client and pushes to data channel
 func ChatWrite(wg *sync.WaitGroup, node request.Node, clientIP string) {
-	defer wg.Done()
 	for { // 改为无限循环，同时监听两个通道
-		select {
-		// 优先响应退出信号
-		case <-node.Exit:
-			model.Logger.Info(fmt.Sprintf("User offline (Exit signal received): %s", clientIP))
-			// 主动关闭WebSocket连接（确保客户端感知断开）
-			_ = node.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Server closed connection"))
-			node.Exit <- true
-			return
-
 		// 正常接收消息并发送
-		case data, ok := <-node.Data:
-			// 检查 data 通道是否已关闭（避免永久阻塞）
-			if !ok {
-				model.Logger.Info(fmt.Sprintf("User data channel closed: %s", clientIP))
-				node.Exit <- true // 触发其他协程退出
-				return
+		data, ok := <-node.Data
+		// 检查 data 通道是否已关闭（避免永久阻塞）
+		if !ok {
+			model.Logger.Info(fmt.Sprintf("User data channel closed: %s", clientIP))
+			if _, ok := <-node.Exit; ok {
+				node.Exit <- true
 			}
-
-			// 发送消息
-			if err := node.Conn.WriteMessage(websocket.TextMessage, data); err != nil {
-				model.Logger.Error("Failed to write message", zap.String("Client IP", clientIP), zap.Error(err))
-				node.Exit <- true // 发送失败也触发退出
-				return
-			}
+			return
 		}
+		// 发送消息
+		if err := node.Conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			model.Logger.Error("Failed to write message", zap.String("Client IP", clientIP), zap.Error(err))
+			if _, ok := <-node.Exit; ok {
+				node.Exit <- true
+			}
+			return
+		}
+
 	}
 }
 
 // CharRead 消息写入协程：从客户端读取消息并处理
 // CharRead message write goroutine: Reads messages from client and processes them
 func CharRead(wg *sync.WaitGroup, node request.Node, Name string, ID int) {
-	defer wg.Done() // 协程结束时通知WaitGroup计数减1 / Notify WaitGroup to decrement count when goroutine ends
-
 	for {
-		// 检查是否收到退出信号（连接需关闭）
-		// Check if exit signal is received (connection needs to close)
-		select {
-		case <-node.Exit:
-			model.Logger.Info(fmt.Sprintf("User %s offline: Exit signal received", Name))
-			node.Exit <- true
-			return
-		default: // 无退出信号，继续读取客户端消息 / No exit signal, continue reading messages from client
-		}
-
 		// 从WebSocket连接读取消息（忽略消息类型，仅关注消息内容）
 		// Read message from WebSocket connection (ignore message type, only focus on content)
 		_, message, err := node.Conn.ReadMessage()
@@ -171,7 +164,9 @@ func CharRead(wg *sync.WaitGroup, node request.Node, Name string, ID int) {
 			model.Logger.Error("read message failed", zap.String("Client IP", Name), zap.Error(err))
 			// 读取消息失败，发送退出信号并终止协程
 			// Failed to read message, send exit signal and terminate goroutine
-			node.Exit <- true
+			if _, ok := <-node.Exit; ok {
+				node.Exit <- true
+			}
 			return
 		}
 

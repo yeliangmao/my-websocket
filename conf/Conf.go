@@ -26,6 +26,7 @@ func ReadConf() {
 	ReadRedisAddr()     // 读取Redis地址配置
 	ReadRedisPassword() // 读取Redis密码配置
 	ReadRabbitMqUrl()   // 读取RabbitMQ连接URL配置
+
 }
 
 // ReadRabbitMqUrl 读取RabbitMQ连接URL配置（从环境变量获取）

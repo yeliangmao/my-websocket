@@ -5,7 +5,6 @@ import (
 	"Gin/global/model"
 	"Gin/inits"
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -123,10 +122,7 @@ func CloseRabbieMqConn() {
 func CloseUserConn() {
 	// 向所有连接发送退出信号
 	// Send exit signal to all connections
-	for id, node := range model.ConnectionPool {
+	for _, node := range model.ConnectionPool {
 		node.Exit <- true
-		model.RDB.Del(model.Ctx, fmt.Sprintf("%d", id))
-		model.RDB.LPush(model.Ctx, "LoginBucket", fmt.Sprintf("%d", id))
 	}
-
 }
