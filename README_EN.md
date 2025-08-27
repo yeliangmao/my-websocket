@@ -84,3 +84,6 @@ my-websocket:v1.4
 In the "Image Startup" command, the backslashes (\) are used for line breaks to improve readability; ensure there is no extra space after the backslash when executing the command.
 [anypath] in the port mapping parameter (-p) needs to be replaced with the actual local port you want to use (e.g., 8081:8080 means mapping local port 8081 to container port 8080).
 Replace placeholders such as user_name, password, addr, database, your_redis_password, and your_redis_addr with actual configuration information of your RabbitMQ and Redis services.
+
+
+Live Demo: http://www.yeliangmao.cn

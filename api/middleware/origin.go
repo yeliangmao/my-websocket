@@ -13,7 +13,12 @@ func OriginMiddleware() gin.HandlerFunc {
 		// 2. 仅保留业务必需的请求方法（移除了PUT、PATCH、DELETE，保留GET/OPTIONS；若需POST可自行添加）
 		// 2. Keep only business-essential request methods (removed PUT, PATCH, DELETE; keep GET/OPTIONS; add POST manually if needed)
 		c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
+		// 3. 关键：允许WebSocket握手必需的请求头（必须添加！否则握手失败）
+		
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Upgrade, Connection, Sec-WebSocket-Key, Sec-WebSocket-Version")
 
+		// 4. 允许前端读取WebSocket相关的响应头（可选，但建议添加）
+		c.Header("Access-Control-Expose-Headers", "Sec-WebSocket-Accept")
 		// 3. 处理预检请求（OPTIONS请求）：直接返回200状态码，避免预检失败
 		// 3. Handle preflight request (OPTIONS request): Return 200 status code directly to avoid preflight failure
 		if c.Request.Method == "OPTIONS" {

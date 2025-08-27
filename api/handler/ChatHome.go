@@ -226,7 +226,17 @@ func CharRead(node request.Node, Name string, ID int) {
 		case "once":
 			// 单聊消息：根据目标用户ID获取其所在节点标识，向对应节点的RabbitMQ队列发送消息
 			// Private chat message: Get target user's node identifier by user ID, send message to the node's RabbitMQ queue
-			OtherOnlyMark := model.RDB.Get(model.Ctx, fmt.Sprintf("%d", Message.Target)).Val()
+			OtherOnlyMark, RedisOk := model.RDB.Get(model.Ctx, fmt.Sprintf("%d", Message.Target)).Result()
+			if RedisOk != nil {
+				var res = model.Response{
+					Data:   "当前用户不在线",
+					Target: ID,
+					Type:   "once",
+					FormId: -1,
+				}
+				data, _ := json.Marshal(res)
+				node.Conn.WriteMessage(websocket.TextMessage, data)
+			}
 			// 检查目标节点的RabbitMQ连接是否存在，不存在则重新同步连接
 			// Check if RabbitMQ connection for target node exists; resync if not
 			_, ok := model.RabbieMqPoll[OtherOnlyMark]
