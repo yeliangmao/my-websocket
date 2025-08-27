@@ -128,7 +128,7 @@ func RedisMakeBucket() {
 		return
 	}
 	for i := 0; i < 100; i++ {
-		if err := model.RDB.LPush(model.Ctx, "LoginBucket", i).Err(); err != nil {
+		if err := model.RDB.LPush(model.Ctx, "LoginBucket", i+1).Err(); err != nil {
 			// 记录Redis操作错误
 			// Log Redis operation error
 			model.Logger.Error("RedisMakeBucket", zap.Error(err))

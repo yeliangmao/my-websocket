@@ -123,6 +123,10 @@ func CloseUserConn() {
 	// 向所有连接发送退出信号
 	// Send exit signal to all connections
 	for _, node := range model.ConnectionPool {
-		node.Exit <- true
+		node.ExitFlag.Do(
+			func() {
+				node.Exit <- true
+			},
+		)
 	}
 }

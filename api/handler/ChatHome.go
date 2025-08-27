@@ -49,6 +49,21 @@ func ChatHome(context *gin.Context) {
 	var Node request.Node
 	// 延迟操作：确保连接关闭、数据通道和退出通道释放，避免资源泄漏
 	// Deferred operations: Ensure connection closure and release of data/exit channels to avoid resource leaks
+	// 执行HTTP到WebSocket的连接升级
+	// Execute HTTP to WebSocket connection upgrade
+	if conn, err := Upgrader.Upgrade(context.Writer, context.Request, nil); err != nil {
+		model.Logger.Error("websocket upgrade failed", zap.Error(err))
+		return
+	} else {
+		// 升级成功，初始化Node的连接和通道
+		// Upgrade successful, initialize Node's connection and channels
+		Node = request.Node{
+			Conn:     conn,              // WebSocket连接实例 / WebSocket connection instance
+			Data:     make(chan []byte), // 消息发送通道（接收待推送给用户的消息） / Message send channel (receives messages to push to user)
+			Exit:     make(chan bool),   // 连接退出通道（用于通知连接关闭） / Connection exit channel (notifies connection closure)
+			ExitFlag: &sync.Once{},
+		}
+	}
 	defer func() {
 		// 关闭WebSocket连接（此时conn非nil）
 		if err := Node.Conn.Close(); err != nil {
@@ -59,21 +74,6 @@ func ChatHome(context *gin.Context) {
 		// 关闭退出通道
 		close(Node.Exit)
 	}()
-	// 执行HTTP到WebSocket的连接升级
-	// Execute HTTP to WebSocket connection upgrade
-	if conn, err := Upgrader.Upgrade(context.Writer, context.Request, nil); err != nil {
-		model.Logger.Error("websocket upgrade failed", zap.Error(err))
-		return
-	} else {
-		// 升级成功，初始化Node的连接和通道
-		// Upgrade successful, initialize Node's connection and channels
-		Node = request.Node{
-			Conn: conn,              // WebSocket连接实例 / WebSocket connection instance
-			Data: make(chan []byte), // 消息发送通道（接收待推送给用户的消息） / Message send channel (receives messages to push to user)
-			Exit: make(chan bool),   // 连接退出通道（用于通知连接关闭） / Connection exit channel (notifies connection closure)
-		}
-	}
-
 	// 4. 将用户节点加入全局连接池，便于后续消息分发和连接管理
 	// 4. Add user node to global connection pool for subsequent message distribution and connection management
 	model.ConnectionPool[ID] = Node
@@ -104,14 +104,12 @@ func ChatHome(context *gin.Context) {
 	Node.Conn.WriteMessage(websocket.TextMessage, InitialInformation)
 	// 8. 使用WaitGroup等待读写协程完成，确保连接关闭前读写操作正常收尾
 	// 8. Use WaitGroup to wait for read/write goroutines to complete, ensuring proper cleanup of read/write operations before connection closes
-	var WG sync.WaitGroup
-	WG.Add(1) // 注册2个待等待的协程（读协程+写协程） / Register 2 goroutines to wait for (read goroutine + write goroutine)
-	// 启动消息写入协程（向客户端推送消息）
-	// Start message write goroutine (pushes messages to client)
-	go ChatWrite(&WG, Node, context.Request.Header.Get("X-Forwarded-For"))
+	go ChatWrite(Node, context.Request.Header.Get("X-Forwarded-For"))
 	// 启动消息读取协程（接收客户端发送的消息）
 	// Start message read goroutine (receives messages from client)
-	go CharRead(&WG, Node, context.Request.Header.Get("X-Forwarded-For"), ID)
+	go CharRead(Node, context.Request.Header.Get("X-Forwarded-For"), ID)
+	var WG sync.WaitGroup
+	WG.Add(1) // 注册1个待等待的协程（退出监听） / Register 1 goroutines to wait for (exit goroutine)
 	go CharExit(&WG, Node)
 	WG.Wait() // 阻塞等待读写协程结束 / Block and wait for read/write goroutines to end
 	return
@@ -129,24 +127,28 @@ func CharExit(s *sync.WaitGroup, node request.Node) {
 
 // ChatWrite 消息读取协程：从客户端接收消息并推送到数据通道
 // ChatWrite message read goroutine: Receives messages from client and pushes to data channel
-func ChatWrite(wg *sync.WaitGroup, node request.Node, clientIP string) {
+func ChatWrite(node request.Node, clientIP string) {
 	for { // 改为无限循环，同时监听两个通道
 		// 正常接收消息并发送
 		data, ok := <-node.Data
 		// 检查 data 通道是否已关闭（避免永久阻塞）
 		if !ok {
 			model.Logger.Info(fmt.Sprintf("User data channel closed: %s", clientIP))
-			if _, ok := <-node.Exit; ok {
-				node.Exit <- true
-			}
+			node.ExitFlag.Do(
+				func() {
+					node.Exit <- true
+				},
+			)
 			return
 		}
 		// 发送消息
 		if err := node.Conn.WriteMessage(websocket.TextMessage, data); err != nil {
 			model.Logger.Error("Failed to write message", zap.String("Client IP", clientIP), zap.Error(err))
-			if _, ok := <-node.Exit; ok {
-				node.Exit <- true
-			}
+			node.ExitFlag.Do(
+				func() {
+					node.Exit <- true
+				},
+			)
 			return
 		}
 
@@ -155,7 +157,7 @@ func ChatWrite(wg *sync.WaitGroup, node request.Node, clientIP string) {
 
 // CharRead 消息写入协程：从客户端读取消息并处理
 // CharRead message write goroutine: Reads messages from client and processes them
-func CharRead(wg *sync.WaitGroup, node request.Node, Name string, ID int) {
+func CharRead(node request.Node, Name string, ID int) {
 	for {
 		// 从WebSocket连接读取消息（忽略消息类型，仅关注消息内容）
 		// Read message from WebSocket connection (ignore message type, only focus on content)
@@ -164,9 +166,11 @@ func CharRead(wg *sync.WaitGroup, node request.Node, Name string, ID int) {
 			model.Logger.Error("read message failed", zap.String("Client IP", Name), zap.Error(err))
 			// 读取消息失败，发送退出信号并终止协程
 			// Failed to read message, send exit signal and terminate goroutine
-			if _, ok := <-node.Exit; ok {
-				node.Exit <- true
-			}
+			node.ExitFlag.Do(
+				func() {
+					node.Exit <- true
+				},
+			)
 			return
 		}
 
@@ -232,7 +236,7 @@ func CharRead(wg *sync.WaitGroup, node request.Node, Name string, ID int) {
 			// 向目标节点的RabbitMQ队列发布单聊消息
 			// Publish private chat message to the target node's RabbitMQ queue
 			model.RabbieMqPoll[OtherOnlyMark].PublishSimple(string(data))
-
+			node.Conn.WriteMessage(websocket.TextMessage, data)
 		default:
 			// 非法消息类型：记录错误日志并向客户端返回提示
 			// Illegal message type: Record error log and return prompt to client

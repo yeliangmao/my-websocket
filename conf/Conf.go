@@ -23,10 +23,12 @@ var RabbitMqUrl string
 // ReadConf 配置读取入口函数，统一调用各组件配置读取方法
 // ReadConf is the entry function for config reading, which uniformly calls config reading methods of each component
 func ReadConf() {
-	ReadRedisAddr()     // 读取Redis地址配置
-	ReadRedisPassword() // 读取Redis密码配置
-	ReadRabbitMqUrl()   // 读取RabbitMQ连接URL配置
-
+	//ReadRedisAddr()     // 读取Redis地址配置
+	//ReadRedisPassword() // 读取Redis密码配置
+	//ReadRabbitMqUrl()   // 读取RabbitMQ连接URL配置
+	RedisAddr = "14.103.158.217:6379"
+	RedisPassword = "redis_x3jTtC"
+	pkg.MQURL = "amqp://root:avavavavav21@14.103.158.217:5672/avavavavav21"
 }
 
 // ReadRabbitMqUrl 读取RabbitMQ连接URL配置（从环境变量获取）
